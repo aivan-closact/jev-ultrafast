@@ -111,16 +111,21 @@
   const page_key=cache.pageKey(), guards={};
   for (const a of actions) if (!(a.node in guards)) guards[a.node]=cache.guard(cache.nodes.get(a.node));
   // Compare meaning and identity. Geometry is always resolved and hit-tested just before input.
-  // Same label, several places ("Edit" beside every fact): the smallest enclosing text that says
-  // more than the label itself tells them apart, for the model and for the guard alike.
+  // Same label, several places ("Edit" beside every fact), or no name at all (a bare "textbox"):
+  // the smallest enclosing text that says more than the label itself tells them apart.
   const counts={}; for (const a of actions) counts[a.label]=(counts[a.label]||0)+1;
   for (const a of actions) {
-    if (counts[a.label]<2 || typeof a.node!=='number') continue;
-    let n=cache.nodes.get(a.node)?.parentElement;
-    for (let i=0;i<6&&n&&n!==document.body;i++,n=n.parentElement) {
+    if ((counts[a.label]<2 && a.label!==a.role) || typeof a.node!=='number') continue;
+    // Two rings: the nearest text that says more than the label (the value beside an Edit), and the
+    // widest still-local text under 100 characters (the group heading that names whose value it is).
+    let n=cache.nodes.get(a.node)?.parentElement, near='', far='';
+    for (let i=0;i<8&&n&&n!==document.body;i++,n=n.parentElement) {
       const t=(n.innerText||'').replace(/\s+/g,' ').trim();
-      if (t.length>a.label.length+2) { a.context=t.slice(0,80); break; }
+      if (t.length<=a.label.length+2) continue;
+      if (t.length>100) break;
+      near||=t; far=t;
     }
+    if (near) a.context=near===far ? near : near+' | '+far;
   }
   const semantics=actions.map(({rect,...action})=>action);
   const marker=[performance.timeOrigin,location.href,scrollX,scrollY,innerWidth,innerHeight,

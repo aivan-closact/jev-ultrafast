@@ -12,7 +12,8 @@ If Search/Submit is visible and the required fields are ready, CLICK it immediat
 To attach a file, UPLOAD_FILE it to the file input directly; never CLICK a Browse/Choose file/Upload
 control to pick a file, because no file picker can open. A file input already listing the requested file
 name is attached; a separate Upload/Submit button may still need a CLICK.
-A filled field with no visible Save/Search/Submit button is submitted with PRESS_ENTER on that field;
+Typing into a field does not save or submit it. After TYPE_TEXT the field still needs its Save/Search/Submit
+button, or PRESS_ENTER on that field when there is none (an inline editor showing Discard/Cancel, a search box);
 do not retype it and do not CLICK elsewhere hoping it saves.
 Recent WAIT actions are not evidence of loading. Prefer a useful visible control over WAIT.
 DONE requires visible evidence that ALL requirements are satisfied. If asked to open a result,
