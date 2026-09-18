@@ -202,8 +202,14 @@ def main():
         )
         dup = browser.observe(screenshot=False)
         contexts = [a.get("context") for a in dup["actions"] if a["label"] == "Edit"]
-        assert contexts == ["$5,000,000 e", "2026-06-01 e"], contexts
-        passed.append("duplicate labels are told apart by their nearest enclosing text")
+        assert contexts == [
+            "$5,000,000 e | Loan amount $5,000,000 e Closing date 2026-06-01 e",
+            "2026-06-01 e | Loan amount $5,000,000 e Closing date 2026-06-01 e",
+        ], contexts
+        browser.evaluate("""document.body.innerHTML='<div><span>Lender legal name</span> <input value="Bank"></div>'""")
+        unnamed = next(a for a in browser.observe(screenshot=False)["actions"] if a["kind"] == "fill")
+        assert unnamed["label"] == "textbox" and unnamed["context"] == "Lender legal name", unnamed
+        passed.append("duplicate or unnamed controls are told apart by their nearest enclosing text")
 
         # PRESS_ENTER submits a field that has no button, the way a keyboard user would.
         browser.evaluate(
