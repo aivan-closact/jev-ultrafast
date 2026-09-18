@@ -70,7 +70,9 @@ def action_space(actions, files=()):
         if node not in indices:
             index = str(len(elements) + 1)
             indices[node] = index
-            element = {k: action[k] for k in ("role", "value", "checked", "selected", "expanded") if k in action}
+            element = {
+                k: action[k] for k in ("role", "value", "checked", "selected", "expanded", "context") if k in action
+            }
             element.update(index=index, label=action["label"].split(" → ")[0], operations=[])
             if kind == "select":
                 element["value"] = action.get("current_value", "")
@@ -136,7 +138,11 @@ def choose(state, goal, history, files=()):
                 index: {
                     "element": f"[{index}] {a['label']}",
                     "current_value": a.get("current_value", a.get("value", "")),
-                    **{k: a[k] for k in ("role", "checked", "selected", "expanded", "accept", "multiple") if k in a},
+                    **{
+                        k: a[k]
+                        for k in ("role", "checked", "selected", "expanded", "accept", "multiple", "context")
+                        if k in a
+                    },
                 }
                 for index, a in candidates.items()
             },

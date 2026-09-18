@@ -194,6 +194,17 @@ def main():
         assert unchanged["marker"] == after["marker"] and elapsed >= 1.4, elapsed
         passed.append("a no-op click pays the settle budget once and is then truthfully unchanged")
 
+        # Duplicate labels carry the nearest distinguishing text as context.
+        browser.evaluate(
+            """document.body.innerHTML=
+              '<dl><div><dt>Loan amount</dt><dd>$5,000,000 <button aria-label="Edit">e</button></dd></div>'+
+              '<div><dt>Closing date</dt><dd>2026-06-01 <button aria-label="Edit">e</button></dd></div></dl>'"""
+        )
+        dup = browser.observe(screenshot=False)
+        contexts = [a.get("context") for a in dup["actions"] if a["label"] == "Edit"]
+        assert contexts == ["$5,000,000 e", "2026-06-01 e"], contexts
+        passed.append("duplicate labels are told apart by their nearest enclosing text")
+
         # PRESS_ENTER submits a field that has no button, the way a keyboard user would.
         browser.evaluate(
             """document.body.innerHTML='<form onsubmit="event.preventDefault();window.submitted=(this.q.value)">'+
