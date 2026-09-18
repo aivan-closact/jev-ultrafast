@@ -45,14 +45,20 @@ def validate_choice(answer, ids):
     return answer
 
 
-def action_space(actions):
-    """One index per observed element; each operation has its own valid target choices."""
+def action_space(actions, files=()):
+    """One index per observed element; each operation has its own valid target choices.
+
+    Upload targets pair an observed file input with a caller-supplied file. Without files,
+    file inputs are not offered at all: the model can never name a path of its own.
+    """
     elements, indices, targets, controls = [], {}, {}, {}
-    operations = {"click": "CLICK", "fill": "TYPE_TEXT", "select": "SELECT"}
+    operations = {"click": "CLICK", "fill": "TYPE_TEXT", "select": "SELECT", "upload": "UPLOAD_FILE"}
     for action in actions:
         kind = action["kind"]
         if kind not in operations:
             controls[action["id"].upper()] = action
+            continue
+        if kind == "upload" and not files:
             continue
         node = action["node"]
         if node not in indices:
@@ -63,6 +69,8 @@ def action_space(actions):
             if kind == "select":
                 element["value"] = action.get("current_value", "")
                 element["options"] = []
+            if kind == "upload":
+                element.update({k: action[k] for k in ("accept", "multiple") if k in action})
             elements.append(element)
         index = indices[node]
         operation = operations[kind]
@@ -74,16 +82,39 @@ def action_space(actions):
         if kind == "select":
             target = f"{index}:{len(element['options']) + 1}"
             element["options"].append({"index": target, "label": action["label"], "value": action["value"]})
+        if kind == "upload":
+            choices = [(str(n), [path]) for n, path in enumerate(files, 1)]
+            if action.get("multiple") and len(files) > 1:
+                choices.append(("all", list(files)))
+            for suffix, paths in choices:
+                names = ", ".join(path.name for path in paths)
+                group[f"{index}:{suffix}"] = {
+                    **action,
+                    "id": f"{action['id']}:{suffix}",
+                    "label": f"{action['label']} ← {names}",
+                    "files": [str(path) for path in paths],
+                }
+            continue
         group[target] = action
     return elements, targets, controls
 
 
-def choose(state, goal, history):
-    elements, targets, controls = action_space(state["actions"])
+def resolve_action(page, selected, files=()):
+    """Map a validated choice back to an observed action; upload choices carry their caller-supplied files."""
+    for action in page["actions"]:
+        if action["id"] == selected:
+            return action
+    _, targets, _ = action_space(page["actions"], files)
+    return next(a for a in targets.get("UPLOAD_FILE", {}).values() if a["id"] == selected)
+
+
+def choose(state, goal, history, files=()):
+    elements, targets, controls = action_space(state["actions"], files)
     labels = {
         "CLICK": "Click an element, button, menu option, autocomplete suggestion, or calendar day.",
         "TYPE_TEXT": "Enter or replace text in an editable field. A small LLM will supply the value from the goal.",
         "SELECT": "Select an observed dropdown value.",
+        "UPLOAD_FILE": "Attach one of the supplied files directly to an observed file input. No file picker opens.",
     }
     operations = {key: labels[key] for key in targets}
     operations.update({key: value["label"] for key, value in controls.items()})
@@ -98,7 +129,7 @@ def choose(state, goal, history):
                 index: {
                     "element": f"[{index}] {a['label']}",
                     "current_value": a.get("current_value", a.get("value", "")),
-                    **{k: a[k] for k in ("role", "checked", "selected", "expanded") if k in a},
+                    **{k: a[k] for k in ("role", "checked", "selected", "expanded", "accept", "multiple") if k in a},
                 }
                 for index, a in candidates.items()
             },
@@ -109,6 +140,8 @@ def choose(state, goal, history):
         "state": {
             "page": {k: state[k] for k in ("url", "title", "text")},
             "elements": elements,
+            # Names only. Paths stay in the executor; the model picks an offered index.
+            "files": [path.name for path in files],
             "recent_actions": [
                 {k: h.get(k) for k in ("action", "kind", "text", "page_changed")} for h in history[-10:]
             ],

@@ -1,5 +1,7 @@
 """Local-browser freshness/execution regressions. No model calls or external websites."""
 
+import tempfile
+from pathlib import Path
 from urllib.parse import quote
 
 from jev_ultrafast.browser import Browser, StalePage
@@ -124,6 +126,53 @@ def main():
         assert value == "Generated", repr(value)
         assert any(a.get("role") == "option" for a in page["actions"])
         passed.append("real text input waits for asynchronous combobox suggestions")
+
+        # Uploads: a hidden input behind a styled label is the common case, and a stray click on that
+        # label must not open a native file picker that would stall the tab.
+        browser.evaluate("document.body.innerHTML=" + repr("""
+          <form><label style="display:inline-block;padding:8px;border:1px solid">Choose a file
+          <input id="cv" type="file" accept=".pdf" style="display:none"></label>
+          <button type="button" id="browse" onclick="document.querySelector('#cv').click()">Browse</button>
+          <input id="visible" type="file" aria-label="Attachments" multiple>
+          <button type="button" id="submit">Upload</button></form>
+        """))
+        browser.evaluate("window.changes=0;document.querySelector('#cv').addEventListener('change',()=>window.changes++)")
+        page = browser.observe(screenshot=False)
+        uploads = {a["label"]: a for a in page["actions"] if a["kind"] == "upload"}
+        assert set(uploads) == {"Choose a file", "Attachments"}, uploads
+        assert uploads["Choose a file"]["accept"] == ".pdf" and uploads["Attachments"]["multiple"] is True
+        assert "rect" in uploads["Choose a file"], "hidden input borrows its label's box for the inspector"
+        assert not any(a["kind"] == "click" and a.get("role") == "file" for a in page["actions"])
+        passed.append("hidden and visible file inputs are observed as upload targets, never as clicks")
+
+        browse = next(a for a in page["actions"] if a["label"] == "Browse")
+        browser.act(browse, page)
+        page = browser.observe(screenshot=False)
+        passed.append("a Browse button that opens the picker does not stall the tab")
+
+        with tempfile.TemporaryDirectory() as folder:
+            cv = Path(folder) / "cv.pdf"
+            cv.write_bytes(b"%PDF-1.4 guard check")
+            target = next(a for a in page["actions"] if a["label"] == "Choose a file" and a["kind"] == "upload")
+            browser.act({**target, "files": [str(cv)]}, page)
+            assert browser.evaluate("document.querySelector('#cv').files[0].name") == "cv.pdf"
+            assert browser.evaluate("window.changes") == 1
+            assert not browser.fresh(page, target), "an attached file changes the input's state"
+            page = browser.observe(screenshot=False)
+            assert next(a for a in page["actions"] if a["kind"] == "upload" and a["node"] == target["node"])[
+                "value"
+            ] == "cv.pdf"
+            passed.append("hidden file input receives the caller's file and reports its name")
+
+            browser.evaluate("document.querySelector('#cv').disabled=true")
+            try:
+                browser.act({**target, "files": [str(cv)]}, page)
+            except StalePage:
+                pass
+            else:
+                raise AssertionError("Disabled file input accepted a file")
+            passed.append("disabled file input rejects an attach before any browser input")
+
         browser.call("Page.navigate", url="about:blank")
         assert not browser.fresh(page, field)
         passed.append("navigation invalidates the old document")

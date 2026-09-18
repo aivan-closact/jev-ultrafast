@@ -9,6 +9,9 @@ Do not toggle a checkbox, switch, or radio already in the requested state.
 Submit populated search fields before opening a result; a populated field alone is not an applied search.
 WAIT only when the needed control is absent/disabled, or submitted results are still loading.
 If Search/Submit is visible and the required fields are ready, CLICK it immediately.
+To attach a file, UPLOAD_FILE it to the file input directly; never CLICK a Browse/Choose file/Upload
+control to pick a file, because no file picker can open. A file input already listing the requested file
+name is attached; a separate Upload/Submit button may still need a CLICK.
 Recent WAIT actions are not evidence of loading. Prefer a useful visible control over WAIT.
 DONE requires visible evidence that ALL requirements are satisfied. If asked to open a result,
 a matching link is not enough. BLOCKED means no supported operation can make progress."""
