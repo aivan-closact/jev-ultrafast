@@ -194,6 +194,13 @@ def main():
         assert unchanged["marker"] == after["marker"] and elapsed >= 1.4, elapsed
         passed.append("a no-op click pays the settle budget once and is then truthfully unchanged")
 
+        # An empty TYPE_TEXT clears the field instead of leaving the old value selected.
+        browser.evaluate("document.body.innerHTML='<label>City<input id=\"city\" value=\"Zurich\"></label>'")
+        typed = browser.observe(screenshot=False)
+        browser.act(next(a for a in typed["actions"] if a["kind"] == "fill"), typed, text="")
+        assert browser.evaluate("document.querySelector('#city').value") == ""
+        passed.append("an empty text replacement clears the field")
+
         # Stillness: a region that declares itself aria-busy is a shell, not a page.
         browser.evaluate("""document.body.innerHTML='<div id="panel" aria-busy="true">Loading…</div>';
           setTimeout(()=>{const p=document.querySelector('#panel');p.removeAttribute('aria-busy');

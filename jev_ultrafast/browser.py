@@ -268,7 +268,18 @@ def browser_operation(request):
                         code="KeyA",
                         modifiers=4 if sys.platform == "darwin" else 2,
                     )
-                    call("Input.insertText", text=request["text"])
+                    if request["text"]:
+                        call("Input.insertText", text=request["text"])
+                    else:
+                        # An empty replacement clears the field: insertText("") leaves the selection as is.
+                        for event in ("keyDown", "keyUp"):
+                            call(
+                                "Input.dispatchKeyEvent",
+                                type=event,
+                                key="Backspace",
+                                code="Backspace",
+                                windowsVirtualKeyCode=8,
+                            )
         return {"executed": action["id"]}
 
     info = evaluate(READ_STATE)
