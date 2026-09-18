@@ -24,7 +24,7 @@ Every observation produces a new element table:
 ...
 ```
 
-The operations are `CLICK`, `TYPE_TEXT`, `SELECT`, `SCROLL_UP`, `SCROLL_DOWN`, `WAIT`, `DONE`, and `BLOCKED`. Only supported operations and targets are offered.
+The operations are `CLICK`, `TYPE_TEXT`, `SELECT`, `UPLOAD_FILE`, `SCROLL_UP`, `SCROLL_DOWN`, `WAIT`, `DONE`, and `BLOCKED`. Only supported operations and targets are offered. `UPLOAD_FILE` appears only when the caller supplied files, and each target pairs an observed file input with one of those files.
 
 ```text
                       one TypeSafe request
@@ -33,6 +33,7 @@ page → element table → operation                 │
                      │ click_target              │
                      │ type_text_target          │
                      │ select_target, if present │
+                     │ upload_file_target, if any│
                      └─────────────┬─────────────┘
                          use the matching target
                                    │
@@ -42,7 +43,7 @@ page → element table → operation                 │
                    small LLM → text → browser
 ```
 
-Target questions are speculative. If the operation is `CLICK`, only `click_target` can execute. Two decisions, **one network round trip**. Each target head contains only compatible elements. Native dropdown choices carry an observed element/option index.
+Target questions are speculative. If the operation is `CLICK`, only `click_target` can execute. Two decisions, **one network round trip**. Each target head contains only compatible elements. Native dropdown choices carry an observed element/option index; upload choices carry an observed input/file index.
 
 There are no site-specific action scripts or prepared field strings in the policy. The Flights example supplies a goal and independently verifies the outcome. The screenshot renderer adds labels afterward; it does not drive the browser.
 
@@ -79,6 +80,8 @@ with Agent(
 
 Run with `uv run --env-file .env python your_script.py`. The same policy can run a different task:
 
+To let a run attach files, pass `files=[...]` (or `--file PATH` to `examples/run.py`). The model only ever sees the file names and chooses an offered index; the executor attaches the caller's path through `DOM.setFileInputFiles`, so hidden inputs behind styled "Browse" buttons work and no native picker opens. Paths must be readable by the Chrome process.
+
 ```bash
 uv run --env-file .env python examples/run.py \
   --url https://en.wikipedia.org/wiki/Main_Page \
@@ -97,8 +100,9 @@ uv run --env-file .env python examples/run.py \
 - **Keep hidden tabs rendering.** Focus emulation prevents background animation throttling without switching Chrome's visible tab.
 - **Send visible text.** Offscreen article bodies and footers do not fill the model context.
 - **Reuse an interrupted text request.** A generated value survives a stale-page retry only if the entire text-helper input is unchanged.
+- **Attach files without a picker.** File inputs are indexed even when hidden, files come only from the caller, and the tab intercepts file-chooser dialogs so a stray click cannot stall the run.
 
-Every executed target is resolved from an observed node. The executor rechecks page freshness and click occlusion. Model output never becomes selectors, coordinates, shell commands, or executable JavaScript. Text-helper output must parse as a small JSON object before typing.
+Every executed target is resolved from an observed node. The executor rechecks page freshness and click occlusion. Model output never becomes selectors, coordinates, file paths, shell commands, or executable JavaScript. Text-helper output must parse as a small JSON object before typing.
 
 ## Small enough to read
 
@@ -119,7 +123,7 @@ In six alternating runs with identical models and settings, both versions passed
 
 The same policy opened the requested Wikipedia article in **2.798 s** and passed a local hotel search/filter task in **1.896 s**. Runs, failures, source hashes, and measurement boundaries are in [performance.md](docs/performance.md).
 
-A `DONE` choice still requires independent outcome verification. The DOM reader handles common HTML and ARIA controls, not the full accessible-name specification. Shadow roots, frames, canvas, uploads, pop-up tabs, nested scrolling, and arbitrary keyboard widgets remain outside this MVP. Owned tabs share the existing Chrome profile.
+A `DONE` choice still requires independent outcome verification. The DOM reader handles common HTML and ARIA controls, not the full accessible-name specification. Shadow roots, frames, canvas, drag-and-drop-only uploads, pop-up tabs, nested scrolling, and arbitrary keyboard widgets remain outside this MVP. Owned tabs share the existing Chrome profile.
 
 ## Development
 

@@ -7,6 +7,8 @@
   };
   for (const [id,e] of cache.nodes) if (!e.isConnected) cache.nodes.delete(id);
   const safe = e => !['password','file','hidden'].includes(e.type);
+  // File inputs are attached to, never clicked: their value is a file name, not a secret.
+  const stateful = e => !['password','hidden'].includes(e.type);
   const visible = e => !e.closest('[aria-hidden="true"],[inert]') &&
     e.checkVisibility({checkOpacity:true,checkVisibilityCSS:true});
   const name = (e,seen=new Set()) => {
@@ -42,10 +44,10 @@
     return null;
   };
   cache.pageKey=()=>[performance.timeOrigin,location.href,scrollX,scrollY,innerWidth,innerHeight,
-    [...document.querySelectorAll('input,textarea,select')].filter(safe)
+    [...document.querySelectorAll('input,textarea,select')].filter(stateful)
       .map(e=>[identity(e),e.value,e.checked,e.selectedIndex,e.disabled,e.readOnly])];
   cache.guard=e=>{
-    if (!e?.isConnected || !visible(e)) return null;
+    if (!e?.isConnected || (e.type!=='file' && !visible(e))) return null;
     const scope=e.closest('form,dialog,[role="dialog"],article,li,tr,[role="row"]') || e.parentElement;
     return [identity(e),role(e),name(e),e.value??null,e.checked??null,e.selectedIndex??null,
       e.readOnly??null,e.matches(':disabled'),e.getAttribute('aria-disabled'),
@@ -78,6 +80,19 @@
       actions.push({...base,kind:editable?'fill':'click',value});
       if (editable) actions.push({...base,kind:'click',value,label:'Open '+base.label});
     }
+  }
+  // Custom uploaders hide the real input behind a styled label or button. The input is still the
+  // only element a file can be attached to, so index it whether or not it is drawn on screen.
+  for (const e of document.querySelectorAll('input[type="file"]')) {
+    if (e.matches(':disabled') || e.closest('[aria-disabled="true"],[inert]')) continue;
+    const owner=e.closest('label') || e.labels?.[0] || null;
+    const box=[e,owner].find(n=>n && visible(n) && n.getBoundingClientRect().width>0);
+    const r=box?.getBoundingClientRect();
+    const action={node:identity(e),role:'file',kind:'upload',label:name(e)||name(owner)||'File',
+      value:[...e.files].map(f=>f.name).join(', '),multiple:e.multiple};
+    if (e.accept) action.accept=e.accept;
+    if (r) action.rect={x:r.x,y:r.y,w:r.width,h:r.height};
+    actions.push(action);
   }
   const words=[], walker=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT);
   const range=document.createRange(); let node,length=0;

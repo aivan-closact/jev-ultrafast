@@ -5,16 +5,21 @@ import time
 from pathlib import Path
 
 from .browser import Browser, StalePage
-from .model import action_space, choose, field_context, field_text
+from .model import action_space, choose, field_context, field_text, resolve_action
 from .questions import MAX_STEPS
 
 
 class Agent:
-    def __init__(self, url, goals, *, record_dir=None, screenshots=False):
+    def __init__(self, url, goals, *, files=(), record_dir=None, screenshots=False):
         task = goals.strip() if isinstance(goals, str) else "\n".join(goals).strip()
         if not task:
             raise ValueError("Supply a task")
         plan = [task]
+        # The only files a run can ever attach. Checked up front so a bad path fails before any browser work.
+        self.files = [Path(f).expanduser().resolve() for f in files]
+        missing = [str(f) for f in self.files if not f.is_file()]
+        if missing:
+            raise ValueError("Not a readable file: " + ", ".join(missing))
         self.pending_text = None
         self.browser = Browser(url)
         self.record_dir = Path(record_dir) if record_dir else None
@@ -46,7 +51,8 @@ class Agent:
     def snapshot(self):
         return {
             **{k: v for k, v in self.state.items() if k != "browser"},
-            "elements": action_space(self.state["page"]["actions"])[0],
+            "elements": action_space(self.state["page"]["actions"], self.files)[0],
+            "files": [f.name for f in self.files],
         }
 
     def command(self, name, body=None):
@@ -74,7 +80,7 @@ class Agent:
                 raise ValueError("This run has stopped. Start a fresh demo.")
             if len(state["decisions"]) >= MAX_STEPS * 2:
                 raise ValueError("Reached the demo's model-call budget")
-            state["decision"] = choose(state["page"], state["goal"], state["history"])
+            state["decision"] = choose(state["page"], state["goal"], state["history"], self.files)
             state["decisions"].append(
                 {
                     **state["decision"],
@@ -98,7 +104,7 @@ class Agent:
                 state["plan_index"] = int(selected == "DONE")
                 state["elapsed_ms"] = round((time.perf_counter() - state["started_at"]) * 1000)
                 return self.snapshot()
-            action = next(a for a in page["actions"] if a["id"] == selected)
+            action = resolve_action(page, selected, self.files)
             if len(state["history"]) >= MAX_STEPS:
                 state["status"] = "blocked"
                 raise ValueError(f"Stopped at the {MAX_STEPS}-action demo budget")

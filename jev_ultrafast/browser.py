@@ -25,6 +25,8 @@ class Browser:
         self.call("Emulation.setDeviceMetricsOverride", width=1120, height=780, deviceScaleFactor=1, mobile=False)
         # Keep rAF/menus rendering in an owned background tab, without activating the user's Chrome tab.
         self.call("Emulation.setFocusEmulationEnabled", enabled=True)
+        # A native file picker would stall the tab. Files are attached through DOM.setFileInputFiles instead.
+        self.call("Page.setInterceptFileChooserDialog", enabled=True)
         self.call("Page.navigate", url=url)
         deadline = time.monotonic() + 15
         while time.monotonic() < deadline:
@@ -86,7 +88,7 @@ class Browser:
         raise StalePage("Page did not settle")
 
     def fresh(self, page, action=None):
-        if action is not None and action["kind"] in {"click", "select"}:
+        if action is not None and action["kind"] in {"click", "select", "upload"}:
             node = action["node"]
             if type(node) is not int:
                 return False
@@ -137,6 +139,24 @@ def browser_operation(request):
         kind = action["kind"]
         if kind == "scroll":
             call("Input.dispatchMouseEvent", type="mouseWheel", x=550, y=650, deltaX=0, deltaY=action["delta"])
+        elif kind == "upload":
+            if type(action["node"]) is not int or not action.get("files"):
+                raise ValueError("Invalid observed node")
+            # Resolve the observed input to a live object handle; the paths come from the caller, never the model.
+            result = call("Runtime.evaluate", expression=f"""(() => {{
+              const e=window.__jevFast?.nodes.get({action["node"]});
+              return e?.isConnected && e.tagName==='INPUT' && e.type==='file' && !e.matches(':disabled') &&
+                !e.closest('[aria-disabled="true"],[inert]') ? e : null;
+            }})()""")
+            handle = result.get("result", {}).get("objectId")
+            if result.get("exceptionDetails") or not handle:
+                raise StalePage("File input changed or is unavailable. Observe again.")
+            try:
+                call("DOM.setFileInputFiles", files=action["files"], objectId=handle)
+            except RuntimeError as error:
+                # The change event may already have fired; do not let transport recovery attach twice.
+                raise RuntimeError(f"Upload was not confirmed ({error}); inspect before retrying.") from None
+            call("Runtime.releaseObject", objectId=handle)
         elif kind != "wait":
             if type(action["node"]) is not int:
                 raise ValueError("Invalid observed node")

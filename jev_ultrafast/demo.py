@@ -56,6 +56,8 @@ def command(name, body):
             if scenario == "flights"
             else f"{ORIGIN}/fixture.html?scenario={scenario}",
             goal,
+            # Attachable files come from the server environment, never from the inspector page.
+            files=[f for f in os.environ.get("JEV_DEMO_FILES", "").split(os.pathsep) if f],
             screenshots=True,
             record_dir=Path.cwd() / "artifacts" / "frames" if body.get("record") else None,
         )

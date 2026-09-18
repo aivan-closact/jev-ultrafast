@@ -162,6 +162,7 @@ def runner():
     a = loop.Agent.__new__(loop.Agent)
     a.screenshots = False
     a.pending_text = None
+    a.files = []
     p = page()
     a.state = {
         "browser": Mock(fresh=Mock(return_value=True), observe=Mock(return_value=p)),
@@ -318,3 +319,128 @@ def test_navigation_during_prediction_reobserves_without_action(runner):
     assert runner.state["status"] == "ready"
     assert runner.state["decision"] is None
     runner.state["browser"].act.assert_not_called()
+
+
+def upload_page(multiple=False):
+    p = page()
+    p["actions"].insert(3, {
+        "id": "e4", "kind": "upload", "label": "Résumé", "role": "file", "value": "", "node": 40,
+        "accept": ".pdf", "multiple": multiple,
+    })
+    p["fingerprint"] = fingerprint(p)
+    return p
+
+
+def test_file_inputs_are_offered_only_with_caller_supplied_files(tmp_path):
+    assert "UPLOAD_FILE" not in model.action_space(upload_page()["actions"])[1]
+    assert all(e["role"] != "file" for e in model.action_space(upload_page()["actions"])[0])
+    files = [tmp_path / "cv.pdf", tmp_path / "cover.pdf"]
+    elements, targets, _ = model.action_space(upload_page()["actions"], files)
+    assert elements[2] == {
+        "index": "3", "label": "Résumé", "role": "file", "value": "", "accept": ".pdf", "multiple": False,
+        "operations": ["UPLOAD_FILE"],
+    }
+    assert set(targets["UPLOAD_FILE"]) == {"3:1", "3:2"}
+    assert targets["UPLOAD_FILE"]["3:2"]["files"] == [str(files[1])]
+    assert targets["UPLOAD_FILE"]["3:2"]["id"] == "e4:2"
+    assert targets["UPLOAD_FILE"]["3:2"]["label"] == "Résumé ← cover.pdf"
+    _, targets, _ = model.action_space(upload_page(multiple=True)["actions"], files)
+    assert targets["UPLOAD_FILE"]["3:all"]["files"] == [str(f) for f in files]
+    assert model.resolve_action(upload_page(), "e4:1", files)["files"] == [str(files[0])]
+
+
+def test_model_sees_file_names_and_can_only_pick_an_offered_file(monkeypatch, tmp_path):
+    files = [tmp_path / "secret-dir" / "cv.pdf"]
+    calls = []
+
+    def post(_url, _key, body):
+        calls.append(body)
+        return {
+            "model": "test",
+            "answers": {
+                "operation": choice(body["questions"]["operation"]["criteria"], "UPLOAD_FILE"),
+                "upload_file_target": choice(["3:1"], "3:1"),
+                "type_text_target": choice(["1"], "1"),
+                "click_target": choice(["1", "2"], "1"),
+            },
+        }
+
+    monkeypatch.setenv("TYPESAFE_API_KEY", "test")
+    monkeypatch.setattr(model, "post_json", post)
+    d = model.choose(upload_page(), "Upload the CV", [], files)
+    assert d["choice"] == "e4:1" and d["operation"] == "UPLOAD_FILE" and d["target"] == "3:1"
+    assert calls[0]["state"]["files"] == ["cv.pdf"]
+    assert calls[0]["questions"]["upload_file_target"]["criteria"]["3:1"]["accept"] == ".pdf"
+    assert "secret-dir" not in json.dumps(calls[0])
+
+    def invented(_url, _key, body):
+        return {"model": "test", "answers": {
+            "operation": choice(body["questions"]["operation"]["criteria"], "UPLOAD_FILE"),
+            "upload_file_target": choice(["3:1", "3:2"], "3:2"),
+        }}
+
+    monkeypatch.setattr(model, "post_json", invented)
+    with pytest.raises(ValueError, match="Invalid TypeSafe"):
+        model.choose(upload_page(), "Upload the CV", [], files)
+
+
+def test_agent_rejects_missing_files_before_any_browser_work(monkeypatch, tmp_path):
+    monkeypatch.setattr(loop, "Browser", Mock(side_effect=AssertionError("must not connect")))
+    with pytest.raises(ValueError, match="Not a readable file"):
+        loop.Agent("https://example.test/", "Upload", files=[tmp_path / "absent.pdf"])
+
+
+def test_upload_decision_executes_the_caller_file_on_the_observed_input(runner, tmp_path):
+    cv = tmp_path / "cv.pdf"
+    cv.write_bytes(b"%PDF")
+    runner.files = [cv]
+    runner.state["page"] = upload_page()
+    runner.state["browser"].observe.return_value = runner.state["page"]
+    runner.state["decision"] = {**decision("e4:1"), "operation": "UPLOAD_FILE", "target": "3:1"}
+    runner.command("act", {"fingerprint": runner.state["page"]["fingerprint"]})
+    action = runner.state["browser"].act.call_args.args[0]
+    assert action["kind"] == "upload" and action["node"] == 40 and action["files"] == [str(cv)]
+    assert runner.state["history"][-1]["action"] == "Résumé ← cv.pdf"
+    assert runner.state["history"][-1]["text"] is None
+
+
+def test_upload_attaches_through_cdp_without_clicking(monkeypatch):
+    import jev_ultrafast.browser as browser
+
+    responses = {"Runtime.evaluate": {"result": {"objectId": "handle-1"}}}
+    cdp = Mock(side_effect=lambda method, **_: responses.get(method, {}))
+    monkeypatch.setattr(browser, "cdp", cdp)
+    browser_operation({"operation": "act", "session": "test", "action": {
+        "id": "e4:1", "kind": "upload", "node": 40, "files": ["/tmp/cv.pdf"],
+    }})
+    methods = [c.args[0] for c in cdp.call_args_list]
+    assert methods == ["Runtime.evaluate", "DOM.setFileInputFiles", "Runtime.releaseObject"]
+    assert cdp.call_args_list[1].kwargs == {"session_id": "test", "files": ["/tmp/cv.pdf"], "objectId": "handle-1"}
+
+
+def test_upload_without_a_live_input_is_stale_and_a_failed_attach_is_not_retried(monkeypatch):
+    import jev_ultrafast.browser as browser
+
+    monkeypatch.setattr(browser, "cdp", Mock(return_value={"result": {"subtype": "null"}}))
+    with pytest.raises(StalePage):
+        browser_operation({"operation": "act", "session": "test", "action": {
+            "id": "e4:1", "kind": "upload", "node": 40, "files": ["/tmp/cv.pdf"],
+        }})
+
+    def attach(method, **_):
+        if method == "DOM.setFileInputFiles":
+            raise RuntimeError("Target closed")
+        return {"result": {"objectId": "handle-1"}}
+
+    monkeypatch.setattr(browser, "cdp", Mock(side_effect=attach))
+    with pytest.raises(RuntimeError, match="Upload was not confirmed"):
+        browser_operation({"operation": "act", "session": "test", "action": {
+            "id": "e4:1", "kind": "upload", "node": 40, "files": ["/tmp/cv.pdf"],
+        }})
+
+
+def test_upload_cannot_run_without_caller_files():
+    with pytest.raises(ValueError):
+        browser_operation({"operation": "act", "session": "test", "action": {
+            "id": "e4:1", "kind": "upload", "node": 40, "files": [],
+        }})
