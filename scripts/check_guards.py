@@ -1,6 +1,7 @@
 """Local-browser freshness/execution regressions. No model calls or external websites."""
 
 import tempfile
+import time
 from pathlib import Path
 from urllib.parse import quote
 
@@ -172,6 +173,26 @@ def main():
             else:
                 raise AssertionError("Disabled file input accepted a file")
             passed.append("disabled file input rejects an attach before any browser input")
+
+        # Settle: a click whose effect lands later (client-side routing, streamed content) is
+        # observed as a change; a click with no effect is judged unchanged only after the budget.
+        browser.evaluate("document.body.innerHTML=" + repr("""
+          <button id="slow" onclick="setTimeout(()=>{document.title='Loaded';
+            document.body.insertAdjacentHTML('beforeend','<p>Loaded later</p>')},300)">Load later</button>
+          <button id="noop">Nothing</button>"""))
+        page = browser.observe(screenshot=False)
+        started = time.monotonic()
+        browser.act(next(a for a in page["actions"] if a["label"] == "Load later"), page)
+        after = browser.observe(screenshot=False)
+        elapsed = time.monotonic() - started
+        assert "Loaded later" in after["text"] and 0.25 < elapsed < 1.2, elapsed
+        passed.append("a delayed page change is observed instead of a false page_changed=False")
+        started = time.monotonic()
+        browser.act(next(a for a in after["actions"] if a["label"] == "Nothing"), after)
+        unchanged = browser.observe(screenshot=False)
+        elapsed = time.monotonic() - started
+        assert unchanged["marker"] == after["marker"] and elapsed >= 1.4, elapsed
+        passed.append("a no-op click pays the settle budget once and is then truthfully unchanged")
 
         browser.call("Page.navigate", url="about:blank")
         assert not browser.fresh(page, field)
