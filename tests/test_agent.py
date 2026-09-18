@@ -506,3 +506,25 @@ def test_a_new_page_is_observed_only_once_it_stops_changing(monkeypatch):
     monkeypatch.setattr(b, "evaluate", lambda _expression: next(reads))
     assert b.quiesce() is True, "an empty shell or an aria-busy region is not still; a still page with content is"
     assert next(reads) == "never read"
+
+
+def test_transport_errors_are_retried_before_giving_up(monkeypatch):
+    import httpx
+
+    calls = []
+
+    def post(url, json=None, headers=None):
+        calls.append(url)
+        if len(calls) < 3:
+            raise httpx.ReadTimeout("slow")
+        return httpx.Response(200, json={"ok": True}, request=httpx.Request("POST", url))
+
+    monkeypatch.setattr(model.CLIENT, "post", post)
+    monkeypatch.setattr(time, "sleep", lambda _s: None)
+    assert model.post_json("https://api.test/v1/systemone", "k", {}) == {"ok": True}
+    assert len(calls) == 3
+
+    calls.clear()
+    monkeypatch.setattr(model.CLIENT, "post", lambda *_a, **_k: (_ for _ in ()).throw(httpx.ConnectError("down")))
+    with pytest.raises(RuntimeError, match="Model connection failed"):
+        model.post_json("https://api.test/v1/systemone", "k", {})
