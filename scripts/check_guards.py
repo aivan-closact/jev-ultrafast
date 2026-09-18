@@ -194,6 +194,18 @@ def main():
         assert unchanged["marker"] == after["marker"] and elapsed >= 1.4, elapsed
         passed.append("a no-op click pays the settle budget once and is then truthfully unchanged")
 
+        # PRESS_ENTER submits a field that has no button, the way a keyboard user would.
+        browser.evaluate(
+            """document.body.innerHTML='<form onsubmit="event.preventDefault();window.submitted=(this.q.value)">'+
+              '<label>Query<input name="q" value="hello"></label></form>'"""
+        )
+        form_page = browser.observe(screenshot=False)
+        enter = next(a for a in form_page["actions"] if a["kind"] == "enter")
+        assert enter["label"] == "Press Enter in Query", enter
+        browser.act(enter, form_page)
+        assert browser.evaluate("window.submitted") == "hello"
+        passed.append("PRESS_ENTER submits the field it targets")
+
         # An empty TYPE_TEXT clears the field instead of leaving the old value selected.
         browser.evaluate("document.body.innerHTML='<label>City<input id=\"city\" value=\"Zurich\"></label>'")
         typed = browser.observe(screenshot=False)

@@ -24,7 +24,7 @@ Every observation produces a new element table:
 ...
 ```
 
-The operations are `CLICK`, `TYPE_TEXT`, `SELECT`, `UPLOAD_FILE`, `SCROLL_UP`, `SCROLL_DOWN`, `WAIT`, `DONE`, and `BLOCKED`. Only supported operations and targets are offered. `UPLOAD_FILE` appears only when the caller supplied files, and each target pairs an observed file input with one of those files.
+The operations are `CLICK`, `TYPE_TEXT`, `SELECT`, `UPLOAD_FILE`, `PRESS_ENTER`, `SCROLL_UP`, `SCROLL_DOWN`, `WAIT`, `DONE`, and `BLOCKED`. `PRESS_ENTER` targets an editable field and submits it the way a keyboard user would, for search boxes and inline editors that have no Save button. Only supported operations and targets are offered. `UPLOAD_FILE` appears only when the caller supplied files, and each target pairs an observed file input with one of those files.
 
 ```text
                       one TypeSafe request
