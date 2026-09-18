@@ -96,6 +96,7 @@ uv run --env-file .env python examples/run.py \
 - **No screenshots in the default agent loop.** Jev consumes structured state. The inspector opts into screenshots; the video uses a separate continuous screencast.
 - **One browser call per snapshot.** Read visible controls, their names, values, and text atomically. Keep references to the actual DOM nodes.
 - **Validate the selected target.** Clicks check the document, form values, target, and nearby context. Animation alone does not force another prediction. Resolve current geometry and reject covered controls before input.
+- **Viewport.** `JEV_VIEWPORT=WIDTHxHEIGHT` (default `1120x780`) sets the emulated viewport; a narrow value exercises responsive layouts with the same observed action space.
 - **Wait for useful state.** After typing into a combobox, wait for visible suggestions, capped at 200 ms. Other interactions get at most two animation frames or 50 ms. Then every action settles: observe returns as soon as the page differs from the one the decision saw, or after `JEV_SETTLE_MS` (1500 by default) without a change, so `page_changed: False` is a fact and a slow client-side navigation is not clicked three times. These reads happen after execution is logged.
 - **Keep hidden tabs rendering.** Focus emulation prevents background animation throttling without switching Chrome's visible tab.
 - **Send visible text.** Offscreen article bodies and footers do not fill the model context.

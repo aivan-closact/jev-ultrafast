@@ -24,6 +24,9 @@ STILLNESS = (
 # input; an unchanged marker read sooner than that records a false `page_changed: False` and
 # invites a repeat of the same action, each one restarting the same navigation.
 SETTLE_MS = int(os.environ.get("JEV_SETTLE_MS", "1500"))
+# Emulated viewport, "WIDTHxHEIGHT". The default is a laptop pane; a narrow value exercises
+# responsive layouts (collapsed navigation, stacked forms) with the same observed action space.
+VIEWPORT = tuple(int(v) for v in os.environ.get("JEV_VIEWPORT", "1120x780").lower().split("x"))
 
 class StalePage(ValueError):
     """A decision no longer refers to the observed page."""
@@ -34,7 +37,8 @@ class Browser:
         ensure_daemon()
         self.target = cdp("Target.createTarget", url="about:blank", background=True)["targetId"]
         self.session = cdp("Target.attachToTarget", targetId=self.target, flatten=True)["sessionId"]
-        self.call("Emulation.setDeviceMetricsOverride", width=1120, height=780, deviceScaleFactor=1, mobile=False)
+        width, height = VIEWPORT
+        self.call("Emulation.setDeviceMetricsOverride", width=width, height=height, deviceScaleFactor=1, mobile=False)
         # Keep rAF/menus rendering in an owned background tab, without activating the user's Chrome tab.
         self.call("Emulation.setFocusEmulationEnabled", enabled=True)
         # A native file picker would stall the tab. Files are attached through DOM.setFileInputFiles instead.
