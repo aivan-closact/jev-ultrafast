@@ -52,7 +52,13 @@ def action_space(actions, files=()):
     file inputs are not offered at all: the model can never name a path of its own.
     """
     elements, indices, targets, controls = [], {}, {}, {}
-    operations = {"click": "CLICK", "fill": "TYPE_TEXT", "select": "SELECT", "upload": "UPLOAD_FILE"}
+    operations = {
+        "click": "CLICK",
+        "fill": "TYPE_TEXT",
+        "select": "SELECT",
+        "upload": "UPLOAD_FILE",
+        "enter": "PRESS_ENTER",
+    }
     for action in actions:
         kind = action["kind"]
         if kind not in operations:
@@ -115,6 +121,7 @@ def choose(state, goal, history, files=()):
         "TYPE_TEXT": "Enter or replace text in an editable field. A small LLM will supply the value from the goal.",
         "SELECT": "Select an observed dropdown value.",
         "UPLOAD_FILE": "Attach one of the supplied files directly to an observed file input. No file picker opens.",
+        "PRESS_ENTER": "Press Enter in a filled field to submit it (a search box or an editor with no Save button).",
     }
     operations = {key: labels[key] for key in targets}
     operations.update({key: value["label"] for key, value in controls.items()})

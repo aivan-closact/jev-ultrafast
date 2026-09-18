@@ -155,7 +155,7 @@ class Browser:
         return False
 
     def fresh(self, page, action=None):
-        if action is not None and action["kind"] in {"click", "select", "upload"}:
+        if action is not None and action["kind"] in {"click", "select", "upload", "enter"}:
             node = action["node"]
             if type(node) is not int:
                 return False
@@ -252,6 +252,17 @@ def browser_operation(request):
                 x, y = target["x"], target["y"]
                 for event in ("mousePressed", "mouseReleased"):
                     call("Input.dispatchMouseEvent", type=event, x=x, y=y, button="left", clickCount=1)
+                if kind == "enter":
+                    # The click above focused the field; Enter submits it like a keyboard user would.
+                    call(
+                        "Input.dispatchKeyEvent",
+                        type="keyDown",
+                        key="Enter",
+                        code="Enter",
+                        windowsVirtualKeyCode=13,
+                        text="\r",
+                    )
+                    call("Input.dispatchKeyEvent", type="keyUp", key="Enter", code="Enter", windowsVirtualKeyCode=13)
                 if kind == "fill":
                     call(
                         "Input.dispatchKeyEvent",

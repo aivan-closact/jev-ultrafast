@@ -79,6 +79,9 @@
         e.isContentEditable || rname==='combobox' ? e.innerText.trim() : '';
       actions.push({...base,kind:editable?'fill':'click',value});
       if (editable) actions.push({...base,kind:'click',value,label:'Open '+base.label});
+      // Fields with no Save/Search button submit on Enter; that is an observed operation, not a guess.
+      if (editable && e.tagName!=='TEXTAREA' && !e.isContentEditable)
+        actions.push({...base,kind:'enter',value,label:'Press Enter in '+base.label});
     }
   }
   // Custom uploaders hide the real input behind a styled label or button. The input is still the
