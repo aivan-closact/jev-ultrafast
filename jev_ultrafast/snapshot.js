@@ -43,9 +43,30 @@
     }
     return null;
   };
-  cache.pageKey=()=>[performance.timeOrigin,location.href,scrollX,scrollY,innerWidth,innerHeight,
-    [...document.querySelectorAll('input,textarea,select')].filter(stateful)
-      .map(e=>[identity(e),e.value,e.checked,e.selectedIndex,e.disabled,e.readOnly])];
+  // The box a wheel would move: the document, or the one visible overflow container hiding the
+  // most content (an app shell that scrolls a pane while the document itself never does). Its
+  // centre must hit-test to itself, so a pane behind a dialog is not the one offered.
+  const clip = r => ({x:(Math.max(r.left,0)+Math.min(r.right,innerWidth))/2,
+    y:(Math.max(r.top,0)+Math.min(r.bottom,innerHeight))/2,
+    w:Math.min(r.right,innerWidth)-Math.max(r.left,0),h:Math.min(r.bottom,innerHeight)-Math.max(r.top,0)});
+  const scroller = () => {
+    let best=null, most=0;
+    for (const e of document.body.querySelectorAll('*')) {
+      const hidden=e.scrollHeight-e.clientHeight;
+      if (hidden<=most || hidden<=2 || !e.clientHeight) continue;
+      if (!['auto','scroll','overlay'].includes(getComputedStyle(e).overflowY) || !visible(e)) continue;
+      const c=clip(e.getBoundingClientRect());
+      if (c.w>0 && c.h>0 && e.contains(document.elementFromPoint(c.x,c.y))) { best=e; most=hidden; }
+    }
+    return best;
+  };
+  cache.pageKey=()=>{
+    const box=scroller();
+    return [performance.timeOrigin,location.href,scrollX,scrollY,innerWidth,innerHeight,
+      [...document.querySelectorAll('input,textarea,select')].filter(stateful)
+        .map(e=>[identity(e),e.value,e.checked,e.selectedIndex,e.disabled,e.readOnly]),
+      box ? [identity(box),box.scrollTop] : null];
+  };
   cache.guard=e=>{
     if (!e?.isConnected || (e.type!=='file' && !visible(e))) return null;
     const scope=e.closest('form,dialog,[role="dialog"],article,li,tr,[role="row"]') || e.parentElement;
@@ -108,7 +129,7 @@
     }
   }
   const text=words.join('\n').slice(0,6000), height=document.documentElement.scrollHeight;
-  const page_key=cache.pageKey(), guards={};
+  const page_key=cache.pageKey(), guards={}, box=scroller();
   for (const a of actions) if (!(a.node in guards)) guards[a.node]=cache.guard(cache.nodes.get(a.node));
   // Compare meaning and identity. Geometry is always resolved and hit-tested just before input.
   // Same label, several places ("Edit" beside every fact), or no name at all (a bare "textbox"):
@@ -129,13 +150,20 @@
   }
   const semantics=actions.map(({rect,...action})=>action);
   const marker=[performance.timeOrigin,location.href,scrollX,scrollY,innerWidth,innerHeight,
-    document.title,text,semantics,page_key[6]];
+    document.title,text,semantics,page_key[6],page_key[7]];
   const omitted_actions=Math.max(0,actions.length-250);
   actions.splice(250);
   actions.forEach((a,i)=>a.id='e'+(i+1));
-  if (scrollY+innerHeight<height-2) actions.push({id:'scroll_down',kind:'scroll',label:'Scroll down',delta:560});
-  if (scrollY>0) actions.push({id:'scroll_up',kind:'scroll',label:'Scroll up',delta:-560});
+  // The wheel lands on the scrolled box (its clipped centre): the box moves first and the
+  // document takes over once the box reaches its end, as it does under a user's wheel.
+  const at=box ? clip(box.getBoundingClientRect()) : {x:innerWidth/2,y:innerHeight/2};
+  const step=Math.round(0.7*(box ? box.clientHeight : innerHeight));
+  const scroll={y:scrollY,height,box:box ? {y:box.scrollTop,height:box.scrollHeight} : null};
+  if (scrollY+innerHeight<height-2 || (box && box.scrollTop+box.clientHeight<box.scrollHeight-2))
+    actions.push({id:'scroll_down',kind:'scroll',label:'Scroll down',delta:step,x:at.x,y:at.y});
+  if (scrollY>0 || (box && box.scrollTop>0))
+    actions.push({id:'scroll_up',kind:'scroll',label:'Scroll up',delta:-step,x:at.x,y:at.y});
   actions.push({id:'wait',kind:'wait',label:'Wait for the page to update'});
   return {url:location.href,title:document.title,w:innerWidth,h:innerHeight,text,
-    scroll:{y:scrollY,height},actions,marker,page_key,guards,omitted_actions};
+    scroll,actions,marker,page_key,guards,omitted_actions};
 })()

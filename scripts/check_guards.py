@@ -239,6 +239,42 @@ def main():
         assert 0.35 < time.monotonic() - started < 1.2
         passed.append("an aria-busy region holds observation until it is done")
 
+        # An app shell that scrolls a pane while the document stays put: the pane's hidden rows are
+        # reachable through the same SCROLL_DOWN, the wheel lands on the pane, and its scroll
+        # position is part of the page key so a decision made before the scroll is stale after it.
+        browser.evaluate("document.body.innerHTML=" + repr("""
+          <style>html,body{margin:0;height:100%;overflow:hidden}
+          #shell{display:flex;height:100vh}#nav{width:200px;overflow-y:auto;height:100%}
+          #main{flex:1;overflow-y:auto;height:100%}#main div{height:120px}</style>
+          <div id="shell"><nav id="nav">""" + "".join(f"<a href='#n{i}'>Nav {i}</a><br>" for i in range(40)) + """</nav>
+          <main id="main">""" + "".join(f"<div><button>Row {i}</button></div>" for i in range(30)) + """</main></div>
+        """))
+        shell = browser.observe(screenshot=False)
+        assert browser.evaluate("document.documentElement.scrollHeight<=innerHeight"), "the document must not scroll"
+        assert shell["scroll"]["box"]["y"] == 0 and shell["scroll"]["box"]["height"] == 3600, shell["scroll"]
+        down = next(a for a in shell["actions"] if a["id"] == "scroll_down")
+        assert not any(a["id"] == "scroll_up" for a in shell["actions"])
+        assert down["x"] > 200, "the wheel lands on the pane hiding the most content, not the narrow nav"
+        assert "Row 29" not in shell["text"]
+        row = next(a for a in shell["actions"] if a["label"] == "Row 0")
+        browser.act(down, shell)
+        after = browser.observe(screenshot=False)
+        top = browser.evaluate("document.querySelector('#main').scrollTop")
+        assert top > 0 and browser.evaluate("document.querySelector('#nav').scrollTop") == 0, top
+        assert after["scroll"]["box"]["y"] == top and after["marker"] != shell["marker"]
+        assert not browser.fresh(shell, row), "a scrolled pane changes the page key"
+        assert any(a["id"] == "scroll_up" for a in after["actions"])
+        for _ in range(10):
+            page = browser.observe(screenshot=False)
+            more = next((a for a in page["actions"] if a["id"] == "scroll_down"), None)
+            if more is None:
+                break
+            browser.act(more, page)
+        else:
+            raise AssertionError("SCROLL_DOWN was still offered after the pane's end")
+        assert "Row 29" in page["text"], "the pane's last row is read once the pane is at its end"
+        passed.append("a scrolled pane inside the shell is scrolled, keyed, and read to its end")
+
         browser.call("Page.navigate", url="about:blank")
         assert not browser.fresh(page, field)
         passed.append("navigation invalidates the old document")

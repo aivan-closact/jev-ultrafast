@@ -131,7 +131,7 @@ class Browser:
                 current, busy = self.evaluate(STILLNESS) or (None, True)
             except StalePage:
                 current, busy = None, True
-            # marker = [timeOrigin, href, scrollX, scrollY, w, h, title, text, semantics, forms]
+            # marker = [timeOrigin, href, scrollX, scrollY, w, h, title, text, semantics, forms, box scroll]
             if not busy and current is not None and current == previous and (current[7] or current[8]):
                 return True
             previous = current
@@ -204,7 +204,16 @@ def browser_operation(request):
         action = request["action"]
         kind = action["kind"]
         if kind == "scroll":
-            call("Input.dispatchMouseEvent", type="mouseWheel", x=550, y=650, deltaX=0, deltaY=action["delta"])
+            # The wheel lands where the snapshot put it: over the overflow container hiding the
+            # most content, or the middle of the viewport when the document itself scrolls.
+            call(
+                "Input.dispatchMouseEvent",
+                type="mouseWheel",
+                x=action["x"],
+                y=action["y"],
+                deltaX=0,
+                deltaY=action["delta"],
+            )
         elif kind == "upload":
             if type(action["node"]) is not int or not action.get("files"):
                 raise ValueError("Invalid observed node")
