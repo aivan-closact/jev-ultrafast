@@ -528,3 +528,25 @@ def test_transport_errors_are_retried_before_giving_up(monkeypatch):
     monkeypatch.setattr(model.CLIENT, "post", lambda *_a, **_k: (_ for _ in ()).throw(httpx.ConnectError("down")))
     with pytest.raises(RuntimeError, match="Model connection failed"):
         model.post_json("https://api.test/v1/systemone", "k", {})
+
+
+def test_scroll_wheel_lands_where_the_snapshot_put_it(monkeypatch):
+    import jev_ultrafast.browser as browser
+
+    cdp = Mock(return_value={})
+    monkeypatch.setattr(browser, "cdp", cdp)
+    # The snapshot chose the overflow pane hiding the most content and its clipped centre.
+    browser_operation({"operation": "act", "session": "test", "action": {
+        "id": "scroll_down", "kind": "scroll", "label": "Scroll down", "delta": 420, "x": 660, "y": 390,
+    }})
+    assert cdp.call_args_list == [
+        (("Input.dispatchMouseEvent",), {"session_id": "test", "type": "mouseWheel", "x": 660, "y": 390,
+                                         "deltaX": 0, "deltaY": 420}),
+    ]
+
+
+def test_fingerprint_tracks_a_scrolled_pane_inside_the_shell():
+    p = page()
+    other = deepcopy(p)
+    other["scroll"] = {"y": 0, "box": {"y": 420, "height": 3600}}
+    assert fingerprint(p) != fingerprint(other)

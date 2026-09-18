@@ -24,7 +24,7 @@ Every observation produces a new element table:
 ...
 ```
 
-The operations are `CLICK`, `TYPE_TEXT`, `SELECT`, `UPLOAD_FILE`, `PRESS_ENTER`, `SCROLL_UP`, `SCROLL_DOWN`, `WAIT`, `DONE`, and `BLOCKED`. `PRESS_ENTER` targets an editable field and submits it the way a keyboard user would, for search boxes and inline editors that have no Save button. Only supported operations and targets are offered. `UPLOAD_FILE` appears only when the caller supplied files, and each target pairs an observed file input with one of those files.
+The operations are `CLICK`, `TYPE_TEXT`, `SELECT`, `UPLOAD_FILE`, `PRESS_ENTER`, `SCROLL_UP`, `SCROLL_DOWN`, `WAIT`, `DONE`, and `BLOCKED`. `PRESS_ENTER` targets an editable field and submits it the way a keyboard user would, for search boxes and inline editors that have no Save button. `SCROLL_DOWN`/`SCROLL_UP` move the document or, in an app shell whose document never scrolls, the visible pane hiding the most content; its scroll position is part of the page key. Only supported operations and targets are offered. `UPLOAD_FILE` appears only when the caller supplied files, and each target pairs an observed file input with one of those files.
 
 ```text
                       one TypeSafe request
@@ -124,7 +124,7 @@ In six alternating runs with identical models and settings, both versions passed
 
 The same policy opened the requested Wikipedia article in **2.798 s** and passed a local hotel search/filter task in **1.896 s**. Runs, failures, source hashes, and measurement boundaries are in [performance.md](docs/performance.md).
 
-A `DONE` choice still requires independent outcome verification. The DOM reader handles common HTML and ARIA controls, not the full accessible-name specification. Shadow roots, frames, canvas, drag-and-drop-only uploads, pop-up tabs, nested scrolling, and arbitrary keyboard widgets remain outside this MVP. Owned tabs share the existing Chrome profile.
+A `DONE` choice still requires independent outcome verification. The DOM reader handles common HTML and ARIA controls, not the full accessible-name specification. Shadow roots, frames, canvas, drag-and-drop-only uploads, pop-up tabs, a second scrolling pane beside the one offered, and arbitrary keyboard widgets remain outside this MVP. Owned tabs share the existing Chrome profile.
 
 ## Development
 
