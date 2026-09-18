@@ -75,6 +75,19 @@
       e.getAttribute('aria-expanded'),e.getAttribute('aria-checked'),e.getAttribute('aria-selected'),
       e.getAttribute('href'),scope?.innerText?.slice(0,6000)||''];
   };
+  // An option in a custom listbox is named by the control that opened it ("Category → Design"),
+  // the way a native <select>'s options are: the list's own name, else the combobox that owns it
+  // through aria-controls/aria-owns, else the one combobox that is expanded.
+  const owner = option => {
+    const list=option.closest('[role="listbox"]');
+    if (!list) return '';
+    const id=list.id ? CSS.escape(list.id) : '';
+    const expanded=[...document.querySelectorAll('[role="combobox"][aria-expanded="true"]')];
+    // A listbox is named only by reference or aria-label, never by its own options' text.
+    return (list.hasAttribute('aria-labelledby') || list.hasAttribute('aria-label') ? name(list) : '') ||
+      name(id && document.querySelector('[aria-controls~="'+id+'"],[aria-owns~="'+id+'"]')) ||
+      (expanded.length===1 ? name(expanded[0]) : '');
+  };
   const actions=[];
   for (const e of document.querySelectorAll(selector)) {
     if (!safe(e) || !visible(e) || e.matches(':disabled') || e.closest('[aria-disabled="true"]')) continue;
@@ -83,6 +96,10 @@
     if (rname==='gridcell' && e.querySelector('button,[role="button"]')) continue;
     const base={node:identity(e),role:rname,label:name(e)||rname,
       rect:{x:r.x,y:r.y,w:r.width,h:r.height}};
+    if (rname==='option') {
+      const group=owner(e);
+      if (group) base.label=group+' → '+base.label;
+    }
     for (const key of ['checked','selected','expanded']) {
       const value=e.getAttribute('aria-'+key);
       if (value!==null) base[key]=value;
@@ -96,8 +113,9 @@
       const editable=!e.readOnly && e.getAttribute('aria-readonly')!=='true' &&
         (['textbox','searchbox','spinbutton'].includes(rname) ||
           (rname==='combobox' && ['INPUT','TEXTAREA'].includes(e.tagName)));
-      const value='value' in e ? String(e.value) :
-        e.isContentEditable || rname==='combobox' ? e.innerText.trim() : '';
+      // A button-shaped combobox (a styled select) shows its current value as text; its .value is ''.
+      const value=['INPUT','TEXTAREA','SELECT'].includes(e.tagName) ? String(e.value) :
+        e.isContentEditable || rname==='combobox' ? e.innerText.trim() : 'value' in e ? String(e.value) : '';
       actions.push({...base,kind:editable?'fill':'click',value});
       if (editable) actions.push({...base,kind:'click',value,label:'Open '+base.label});
       // Fields with no Save/Search button submit on Enter; that is an observed operation, not a guess.
@@ -130,6 +148,8 @@
   }
   const text=words.join('\n').slice(0,6000), height=document.documentElement.scrollHeight;
   const page_key=cache.pageKey(), guards={}, box=scroller();
+  // While a listbox is open its options are what the page offers next; list them first.
+  actions.sort((a,b)=>(b.role==='option')-(a.role==='option'));
   for (const a of actions) if (!(a.node in guards)) guards[a.node]=cache.guard(cache.nodes.get(a.node));
   // Compare meaning and identity. Geometry is always resolved and hit-tested just before input.
   // Same label, several places ("Edit" beside every fact), or no name at all (a bare "textbox"):
