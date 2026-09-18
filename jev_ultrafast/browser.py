@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -12,6 +13,11 @@ from browser_harness.helpers import cdp
 # Atomically read visible content and controls, preserving actual DOM node identity.
 READ_STATE = Path(__file__).with_name("snapshot.js").read_text()
 MARKER = f"(() => {{ const state={READ_STATE}; return state?.marker ?? null; }})()"
+# How long an interaction may take to show its effect before the page is judged unchanged.
+# Client-side routers and streamed content typically land a few hundred milliseconds after the
+# input; an unchanged marker read sooner than that records a false `page_changed: False` and
+# invites a repeat of the same action, each one restarting the same navigation.
+SETTLE_MS = int(os.environ.get("JEV_SETTLE_MS", "1500"))
 
 class StalePage(ValueError):
     """A decision no longer refers to the observed page."""
@@ -45,37 +51,11 @@ class Browser:
 
     def observe(self, screenshot=True):
         if getattr(self, "after_input", None):
-            action, self.after_input = self.after_input, None
-            # This is read-only and happens after execution was logged, even if navigation interrupts it.
-            try:
-                self.call(
-                    "Runtime.evaluate",
-                    expression="""(action => new Promise(resolve => {
-                      const field=window.__jevFast?.nodes.get(action.node);
-                      const autocomplete=action.kind==='fill' && field?.getAttribute('role')==='combobox';
-                      let frames=0, stopped=false;
-                      const finish=()=>{stopped=true;resolve()};
-                      setTimeout(finish,autocomplete ? 200 : 50);
-                      const ready=()=>{
-                        if (stopped) return;
-                        const ids=(field?.getAttribute('aria-controls')||field?.getAttribute('aria-owns')||'')
-                          .split(/\\s+/).filter(Boolean);
-                        const roots=ids.length ? ids.map(id=>document.getElementById(id)).filter(Boolean) : [document];
-                        const options=roots.flatMap(root=>[...root.querySelectorAll('[role="option"]')]);
-                        if (++frames>=2 && (!autocomplete || options.some(e=>{
-                          const r=e.getBoundingClientRect();
-                          return r.width && r.height && r.bottom>0 && r.top<innerHeight &&
-                            e.checkVisibility({checkOpacity:true,checkVisibilityCSS:true});
-                        }))) finish();
-                        else requestAnimationFrame(ready);
-                      };
-                      requestAnimationFrame(ready);
-                    }))(""" + json.dumps(action) + ")",
-                    awaitPromise=True,
-                    returnByValue=True,
-                )
-            except RuntimeError:
-                pass
+            (action, marker), self.after_input = self.after_input, None
+            if action["kind"] != "wait":
+                self.render(action)
+            # Every action, WAIT included, settles the same way: WAIT means "until the page moves".
+            self.settle(marker)
         for attempt in range(10):
             try:
                 return browser_operation(
@@ -86,6 +66,56 @@ class Browser:
                     raise
                 time.sleep(0.02)
         raise StalePage("Page did not settle")
+
+    def render(self, action):
+        """Give the input up to two frames (or visible autocomplete options) to paint.
+
+        This is read-only and happens after execution was logged, even if navigation interrupts it."""
+        try:
+            self.call(
+                "Runtime.evaluate",
+                expression="""(action => new Promise(resolve => {
+                  const field=window.__jevFast?.nodes.get(action.node);
+                  const autocomplete=action.kind==='fill' && field?.getAttribute('role')==='combobox';
+                  let frames=0, stopped=false;
+                  const finish=()=>{stopped=true;resolve()};
+                  setTimeout(finish,autocomplete ? 200 : 50);
+                  const ready=()=>{
+                    if (stopped) return;
+                    const ids=(field?.getAttribute('aria-controls')||field?.getAttribute('aria-owns')||'')
+                      .split(/\\s+/).filter(Boolean);
+                    const roots=ids.length ? ids.map(id=>document.getElementById(id)).filter(Boolean) : [document];
+                    const options=roots.flatMap(root=>[...root.querySelectorAll('[role="option"]')]);
+                    if (++frames>=2 && (!autocomplete || options.some(e=>{
+                      const r=e.getBoundingClientRect();
+                      return r.width && r.height && r.bottom>0 && r.top<innerHeight &&
+                        e.checkVisibility({checkOpacity:true,checkVisibilityCSS:true});
+                    }))) finish();
+                    else requestAnimationFrame(ready);
+                  };
+                  requestAnimationFrame(ready);
+                }))(""" + json.dumps(action) + ")",
+                awaitPromise=True,
+                returnByValue=True,
+            )
+        except RuntimeError:
+            pass
+
+    def settle(self, marker):
+        """Return as soon as the page differs from `marker`, or once SETTLE_MS pass without a change.
+
+        The fast path (the action already changed the page) costs one read. Only an action with no
+        visible effect pays the full budget, which is exactly when a truthful `page_changed: False`
+        matters. A document swap mid-poll reads as a change."""
+        deadline = time.monotonic() + SETTLE_MS / 1000
+        while time.monotonic() < deadline:
+            try:
+                if self.evaluate(MARKER) != marker:
+                    return True
+            except StalePage:
+                return True
+            time.sleep(0.05)
+        return False
 
     def fresh(self, page, action=None):
         if action is not None and action["kind"] in {"click", "select", "upload"}:
@@ -102,10 +132,9 @@ class Browser:
     def act(self, action, page, text=None):
         if not self.fresh(page, action):
             raise StalePage("Page changed since this decision. Observe again.")
-        if action["kind"] == "wait":
-            time.sleep(0.1)
         result = browser_operation({"operation": "act", "session": self.session, "action": action, "text": text})
-        self.after_input = action if action["kind"] != "wait" else None
+        # Every action, WAIT included, is followed by the settle read: WAIT means "until the page moves".
+        self.after_input = (action, page["marker"])
         return result
 
     def close(self):

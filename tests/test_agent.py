@@ -444,3 +444,48 @@ def test_upload_cannot_run_without_caller_files():
         browser_operation({"operation": "act", "session": "test", "action": {
             "id": "e4:1", "kind": "upload", "node": 40, "files": [],
         }})
+
+
+def test_observe_settles_until_the_page_moves_or_the_budget_ends(monkeypatch):
+    import jev_ultrafast.browser as browser
+
+    b = browser.Browser.__new__(browser.Browser)
+    b.session = "test"
+    monkeypatch.setattr(browser, "SETTLE_MS", 200)
+    markers = iter(["old", "old", "new"])
+    monkeypatch.setattr(b, "evaluate", lambda _expression: next(markers))
+    started = time.perf_counter()
+    assert b.settle("old") is True
+    assert time.perf_counter() - started < 0.19, "a moved page returns before the budget ends"
+
+    monkeypatch.setattr(b, "evaluate", lambda _expression: "old")
+    started = time.perf_counter()
+    assert b.settle("old") is False
+    assert time.perf_counter() - started >= 0.2, "an unchanged page pays the whole budget, once"
+
+    def swapped(_expression):
+        raise StalePage("document replaced")
+
+    monkeypatch.setattr(b, "evaluate", swapped)
+    assert b.settle("old") is True, "a navigation mid-poll counts as a change"
+
+
+def test_every_action_including_wait_is_followed_by_a_settle_read(monkeypatch):
+    import jev_ultrafast.browser as browser
+
+    b = browser.Browser.__new__(browser.Browser)
+    b.session = "test"
+    b.after_input = None
+    monkeypatch.setattr(b, "fresh", lambda *_a: True)
+    monkeypatch.setattr(browser, "browser_operation", Mock(return_value=None))
+    p = {**page(), "marker": ["marker-1"]}
+    b.act({"id": "wait", "kind": "wait", "label": "Wait"}, p)
+    assert b.after_input == ({"id": "wait", "kind": "wait", "label": "Wait"}, p["marker"])
+    settled, rendered = [], []
+    monkeypatch.setattr(b, "settle", lambda marker: settled.append(marker))
+    monkeypatch.setattr(b, "render", lambda action: rendered.append(action["id"]))
+    b.observe(screenshot=False)
+    assert settled == [p["marker"]] and rendered == [], "WAIT settles without a render wait"
+    b.act(p["actions"][0], p)
+    b.observe(screenshot=False)
+    assert rendered == [p["actions"][0]["id"]] and settled == [p["marker"]] * 2
