@@ -481,11 +481,28 @@ def test_every_action_including_wait_is_followed_by_a_settle_read(monkeypatch):
     p = {**page(), "marker": ["marker-1"]}
     b.act({"id": "wait", "kind": "wait", "label": "Wait"}, p)
     assert b.after_input == ({"id": "wait", "kind": "wait", "label": "Wait"}, p["marker"])
-    settled, rendered = [], []
-    monkeypatch.setattr(b, "settle", lambda marker: settled.append(marker))
+    settled, rendered, quiesced = [], [], []
+    monkeypatch.setattr(b, "settle", lambda marker: settled.append(marker) or True)
     monkeypatch.setattr(b, "render", lambda action: rendered.append(action["id"]))
+    monkeypatch.setattr(b, "quiesce", lambda: quiesced.append(True))
     b.observe(screenshot=False)
     assert settled == [p["marker"]] and rendered == [], "WAIT settles without a render wait"
+    assert quiesced == [True], "the page is left to finish moving"
     b.act(p["actions"][0], p)
     b.observe(screenshot=False)
     assert rendered == [p["actions"][0]["id"]] and settled == [p["marker"]] * 2
+
+
+def test_a_new_page_is_observed_only_once_it_stops_changing(monkeypatch):
+    import jev_ultrafast.browser as browser
+
+    b = browser.Browser.__new__(browser.Browser)
+    b.session = "test"
+    monkeypatch.setattr(browser, "SETTLE_MS", 1000)
+    shell = [0, "u", 0, 0, 1, 1, "t", "", [], []]
+    loaded = [0, "u", 0, 0, 1, 1, "t", "Deals", [{"id": "e1"}], []]
+    busy, still = (loaded, True), (loaded, False)
+    reads = iter([(shell, False), (shell, False), busy, busy, still, "never read"])
+    monkeypatch.setattr(b, "evaluate", lambda _expression: next(reads))
+    assert b.quiesce() is True, "an empty shell or an aria-busy region is not still; a still page with content is"
+    assert next(reads) == "never read"
