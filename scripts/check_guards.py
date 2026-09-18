@@ -275,6 +275,39 @@ def main():
         assert "Row 29" in page["text"], "the pane's last row is read once the pane is at its end"
         passed.append("a scrolled pane inside the shell is scrolled, keyed, and read to its end")
 
+        # A custom listbox: the options carry the name of the combobox that opened them, the
+        # combobox shows its current value, and while the list is open its options come first.
+        browser.evaluate("document.body.innerHTML=" + repr("""
+          <style>html,body{overflow:auto;height:auto}</style>
+          <label for="desc">Description</label><input id="desc">
+          <button id="cat" role="combobox" aria-label="Category" aria-haspopup="listbox" aria-expanded="false"
+            onclick="const l=document.querySelector('#cat-list');const open=this.getAttribute('aria-expanded')==='true';
+              this.setAttribute('aria-expanded',String(!open));l.hidden=open;
+              this.setAttribute('aria-controls',open?'':'cat-list')">Document</button>
+          <div id="cat-list" role="listbox" hidden>
+            <div role="option" aria-selected="true" onclick="window.picked='Document'">Document</div>
+            <div role="option" aria-selected="false" onclick="window.picked='Registry Search';
+              const c=document.querySelector('#cat');c.textContent='Registry Search';c.click()">Registry Search</div>
+          </div>
+          <button id="add">Add</button>
+        """))
+        closed = browser.observe(screenshot=False)
+        combo = next(a for a in closed["actions"] if a.get("role") == "combobox")
+        assert combo["label"] == "Category" and combo["value"] == "Document", combo
+        assert not any(a.get("role") == "option" for a in closed["actions"])
+        browser.act(combo, closed)
+        opened = browser.observe(screenshot=False)
+        labels = [a["label"] for a in opened["actions"] if a["kind"] == "click"]
+        assert labels[:2] == ["Category → Document", "Category → Registry Search"], labels
+        option = next(a for a in opened["actions"] if a["label"] == "Category → Registry Search")
+        assert option["selected"] == "false"
+        browser.act(option, opened)
+        chosen = browser.observe(screenshot=False)
+        assert browser.evaluate("window.picked") == "Registry Search"
+        assert next(a for a in chosen["actions"] if a.get("role") == "combobox")["value"] == "Registry Search"
+        assert not any(a.get("role") == "option" for a in chosen["actions"])
+        passed.append("custom listbox options are named by their combobox and offered first while open")
+
         browser.call("Page.navigate", url="about:blank")
         assert not browser.fresh(page, field)
         passed.append("navigation invalidates the old document")

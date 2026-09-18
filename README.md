@@ -28,7 +28,7 @@ Every observation produces a new element table:
 ...
 ```
 
-The operations are `CLICK`, `TYPE_TEXT`, `SELECT`, `UPLOAD_FILE`, `PRESS_ENTER`, `SCROLL_UP`, `SCROLL_DOWN`, `WAIT`, `DONE`, and `BLOCKED`. `PRESS_ENTER` targets an editable field and submits it the way a keyboard user would, for search boxes and inline editors that have no Save button. `SCROLL_DOWN`/`SCROLL_UP` move the document or, in an app shell whose document never scrolls, the visible pane hiding the most content; its scroll position is part of the page key. Only supported operations and targets are offered. `UPLOAD_FILE` appears only when the caller supplied files, and each target pairs an observed file input with one of those files.
+The operations are `CLICK`, `TYPE_TEXT`, `SELECT`, `UPLOAD_FILE`, `PRESS_ENTER`, `SCROLL_UP`, `SCROLL_DOWN`, `WAIT`, `DONE`, and `BLOCKED`. `PRESS_ENTER` targets an editable field and submits it the way a keyboard user would, for search boxes and inline editors that have no Save button. `SCROLL_DOWN`/`SCROLL_UP` move the document or, in an app shell whose document never scrolls, the visible pane hiding the most content; its scroll position is part of the page key. Options of a custom listbox read "Category → Design" (named by the combobox that opened them) and come first while the list is open. Only supported operations and targets are offered. `UPLOAD_FILE` appears only when the caller supplied files, and each target pairs an observed file input with one of those files.
 
 ```text
                       one TypeSafe request

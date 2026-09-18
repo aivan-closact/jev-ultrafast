@@ -15,6 +15,8 @@ name is attached; a separate Upload/Submit button may still need a CLICK.
 Typing into a field does not save or submit it. After TYPE_TEXT the field still needs its Save/Search/Submit
 button, or PRESS_ENTER on that field when there is none (an inline editor showing Discard/Cancel, a search box);
 do not retype it and do not CLICK elsewhere hoping it saves.
+While a dropdown list is open (its options read "Field → Choice"), CLICK the wanted option; a click
+anywhere else only closes the list.
 Recent WAIT actions are not evidence of loading. Prefer a useful visible control over WAIT.
 DONE requires visible evidence that ALL requirements are satisfied. If asked to open a result,
 a matching link is not enough. BLOCKED means no supported operation can make progress."""
