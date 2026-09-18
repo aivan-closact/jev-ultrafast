@@ -17,6 +17,11 @@ def post_json(url, key, body):
         try:
             response = CLIENT.post(url, json=body, headers={"Authorization": f"Bearer {key}"})
         except httpx.HTTPError:
+            # A dropped connection or a read timeout is transport noise, not an answer; the request
+            # is idempotent (a question about a state), so it gets the same retries as a 429.
+            if attempt < 2:
+                time.sleep(0.5 * 2**attempt)
+                continue
             raise RuntimeError("Model connection failed; no action executed.") from None
         if response.status_code in {429, 529, 503} and attempt < 2:
             time.sleep(0.5 * 2**attempt)
