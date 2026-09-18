@@ -194,6 +194,15 @@ def main():
         assert unchanged["marker"] == after["marker"] and elapsed >= 1.4, elapsed
         passed.append("a no-op click pays the settle budget once and is then truthfully unchanged")
 
+        # Stillness: a region that declares itself aria-busy is a shell, not a page.
+        browser.evaluate("""document.body.innerHTML='<div id="panel" aria-busy="true">Loading…</div>';
+          setTimeout(()=>{const p=document.querySelector('#panel');p.removeAttribute('aria-busy');
+            p.textContent='3 deals'},400)""")
+        started = time.monotonic()
+        assert browser.quiesce() and "3 deals" in browser.observe(screenshot=False)["text"]
+        assert 0.35 < time.monotonic() - started < 1.2
+        passed.append("an aria-busy region holds observation until it is done")
+
         browser.call("Page.navigate", url="about:blank")
         assert not browser.fresh(page, field)
         passed.append("navigation invalidates the old document")

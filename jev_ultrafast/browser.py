@@ -13,6 +13,12 @@ from browser_harness.helpers import cdp
 # Atomically read visible content and controls, preserving actual DOM node identity.
 READ_STATE = Path(__file__).with_name("snapshot.js").read_text()
 MARKER = f"(() => {{ const state={READ_STATE}; return state?.marker ?? null; }})()"
+# The marker plus the page's own word on whether it is still loading: WAI-ARIA `aria-busy="true"`
+# marks a region whose content is being updated (skeletons, streamed panels, pending saves).
+STILLNESS = (
+    f"(() => {{ const state={READ_STATE}; "
+    "return state ? [state.marker, !!document.querySelector('[aria-busy=\"true\"]')] : null; })()"
+)
 # How long an interaction may take to show its effect before the page is judged unchanged.
 # Client-side routers and streamed content typically land a few hundred milliseconds after the
 # input; an unchanged marker read sooner than that records a false `page_changed: False` and
@@ -39,6 +45,7 @@ class Browser:
             if self.evaluate("document.readyState") == "complete":
                 break
             time.sleep(0.02)
+        self.quiesce()
 
     def call(self, method, **params):
         return cdp(method, session_id=self.session, **params)
@@ -55,7 +62,11 @@ class Browser:
             if action["kind"] != "wait":
                 self.render(action)
             # Every action, WAIT included, settles the same way: WAIT means "until the page moves".
+            # The page is then given the chance to finish moving: a committed client-side
+            # navigation is an empty shell until its content streams in. A page that did not
+            # move is still by definition, so this costs it one more read.
             self.settle(marker)
+            self.quiesce()
         for attempt in range(10):
             try:
                 return browser_operation(
@@ -100,6 +111,28 @@ class Browser:
             )
         except RuntimeError:
             pass
+
+    def quiesce(self):
+        """Wait for a loaded or changed page to stop changing before it is observed.
+
+        `readyState === 'complete'` and a committed navigation both precede streamed content and
+        hydration on most modern sites; an observation taken then sees the shell, not the page.
+        Two identical marker reads 100 ms apart count as still — unless the page shows nothing
+        yet or declares a region `aria-busy`, which is a shell until the budget (SETTLE_MS) says
+        otherwise."""
+        deadline = time.monotonic() + SETTLE_MS / 1000
+        previous = None
+        while time.monotonic() < deadline:
+            try:
+                current, busy = self.evaluate(STILLNESS) or (None, True)
+            except StalePage:
+                current, busy = None, True
+            # marker = [timeOrigin, href, scrollX, scrollY, w, h, title, text, semantics, forms]
+            if not busy and current is not None and current == previous and (current[7] or current[8]):
+                return True
+            previous = current
+            time.sleep(0.1)
+        return False
 
     def settle(self, marker):
         """Return as soon as the page differs from `marker`, or once SETTLE_MS pass without a change.
